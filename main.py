@@ -183,8 +183,8 @@ def list_tables_dax_tool() -> str:
     )'''
         df = run_dax_query(dax_query)
         # We only care about the table name and filter out system tables
-        tables = df[df['Type'] == 'Table']['Name'].tolist()
-        return "\n".join(tables) if tables else "No tables found in the model."
+        df = df.to_string(index=False)
+        return df
     except Exception as e:
         return f"Error retrieving tables: {str(e)}"
 
@@ -213,15 +213,15 @@ def get_schema_dax_tool(table_name: str) -> str:
         if schema_df.empty:
             return f"Table '{table_name}' not found or has no columns."
 
-        schema_lines = [f" {row['Name']} ({row['DataType']})" for index, row in schema_df.iterrows()]
-        schema_text = f"Schema for '{table_name}':\n" + "\n".join(schema_lines)
+        # schema_lines = [f" {row['Name']} ({row['DataType']})" for index, row in schema_df.iterrows()]
+        schema_text = f"Schema for '{table_name}':\n" + schema_df.to_string(index=False)
 
         # Get top 3 sample rows using TOPN
         dax_sample_query = f"EVALUATE TOPN(3, '{table_name}')"
         sample_df = run_dax_query(dax_sample_query)
         
         if not sample_df.empty:
-            sample_text = f"\n\nSample rows:\n{sample_df.to_string()}"
+            sample_text = f"\n\nSample rows:\n{sample_df.to_string(index=False)}"
         else:
             sample_text = "\n\n(No sample rows found - table may be empty.)"
             
