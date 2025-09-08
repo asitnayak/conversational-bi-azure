@@ -152,6 +152,7 @@ def run_dax_query(dax_query: str) -> pd.DataFrame:
     access_token = result['access_token']
 
     # Execute the DAX query using the Power BI REST API
+    
     api_url = f"https://api.powerbi.com/v1.0/myorg/groups/{WORKSPACE_ID}/datasets/{DATASET_ID}/executeQueries"
     request_body = {"queries": [{"query": dax_query}]}
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
@@ -171,7 +172,15 @@ def list_tables_dax_tool() -> str:
     try:
         # DAX Dynamic Management Views (DMVs) are used to query model metadata.
         # TMSCHEMA_TABLES lists all tables.
-        dax_query = "EVALUATE TMSCHEMA_TABLES"
+        dax_query = '''EVALUATE
+    SELECTCOLUMNS(
+        FILTER(
+            INFO.VIEW.TABLES(),
+            [IsHidden] = FALSE
+        ),
+        "Table Name", [Name],
+        "Description", [Description]
+    )'''
         df = run_dax_query(dax_query)
         # We only care about the table name and filter out system tables
         tables = df[df['Type'] == 'Table']['Name'].tolist()
@@ -187,7 +196,18 @@ def get_schema_dax_tool(table_name: str) -> str:
     """
     try:
         # Use TMSCHEMA_COLUMNS DMV to get the schema for a specific table
-        dax_schema_query = f"EVALUATE FILTER(TMSCHEMA_COLUMNS, [TableID] IN SELECTCOLUMNS(FILTER(TMSCHEMA_TABLES, [Name] = '{table_name}'), \"ID\", [ID]))"
+        dax_schema_query = f'''EVALUATE
+                            SELECTCOLUMNS(
+                                FILTER(
+                                    INFO.VIEW.COLUMNS(),
+                                    [Table] = "{table_name}" && [IsHidden] = FALSE
+                                ),
+                                "Column Name", [Name],
+                                "Data Type", [DataType],
+                                "Description", [Description],
+                                "Is Key", [IsKey],
+                                "Is Nullable", [IsNullable]
+                            )'''
         schema_df = run_dax_query(dax_schema_query)
         
         if schema_df.empty:
