@@ -86,10 +86,10 @@ def conv_bot_v1(question: str):
         # response = requests.post(api_url, json=request_body, headers=headers)
 
         res = list_tables_dax_tool()
-        final_response += f"\n\nLIST TABLE result :\n{res}"
+        final_return += f"\n\nLIST TABLE result :\n{res}"
 
         res = get_schema_dax_tool('ProductDimension')
-        final_response += f"\n\nGET SCHEMA result :\n{res}"
+        final_return += f"\n\nGET SCHEMA result :\n{res}"
 
         # --- 4. Process the Response ---
         # if response.status_code == 200:
