@@ -83,7 +83,7 @@ def conv_bot_v1(question: str):
         # Make the POST request
         # print("Sending DAX query to Power BI REST API...")
         final_return += f"\nSending DAX query to Power BI REST API..."
-        response = requests.post(api_url, json=request_body, headers=headers)
+        response = requests.get(api_url, json=request_body, headers=headers)
 
         # --- 4. Process the Response ---
         if response.status_code == 200:
