@@ -3,3 +3,7 @@ uvicorn[standard]
 uvicorn
 msal
 pandas
+langchain-community
+langchain-core
+langchain-openai
+langgraph
