@@ -7,4 +7,5 @@ langchain-community
 langchain-core
 langchain-openai
 langgraph
-plotly
+matplotlib
+seaborn
