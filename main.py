@@ -8,15 +8,25 @@ import os
 from dotenv import load_dotenv
 import json
 import io
+import json
 import base64
-import plotly.express as px
+from typing import Literal
+import matplotlib
+matplotlib.use("Agg") 
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set_theme(style="white") 
+import base64
+# import plotly.express as px
+# import kaleido
+# kaleido.get_chrome_sync()
 from typing import Literal
 import time
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph import MessagesState
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -37,14 +47,13 @@ app = FastAPI(
 
 # ~/Documents/SCALER/Azure Projects/ai_for_bi_webapp_local/.venv/bin/python
 
-@app.get("/conv_bot_v1/{question}", response_class=PlainTextResponse)
+@app.get("/conv_bot_v1/{question}")
 def conv_bot_v1(question: str):
     final_return = ""
 
     try:
-        question = req.route_params.get('question')
         if not question:
-            return func.HttpResponse("Did not receive any question.", status_code=400)
+            return HTTPException("Did not receive any question.", status_code=400)
 
         my_bot = get_bot()
 
@@ -53,10 +62,44 @@ def conv_bot_v1(question: str):
         
         final_message = response['messages'][-1].content
 
-        try:
-            # If it's a plot, return as JSON
-            json_response = json.loads(final_message)
-            return func.HttpResponse(json.dumps(json_response), status_code=200, mimetype="application/json")
+        dax_query = None
+        plot_image_base64 = None
+        plot_available = False
+
+        for msg in reversed(response['messages']):  # Start from the latest message
+            if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
+                # Check each tool call in this message
+                for tool_call in msg.tool_calls:
+                    if tool_call['name'] == 'run_dax_query_tool':
+                        # Extract the DAX query from the arguments
+                        dax_query = tool_call['args']['query']
+
+        if not dax_query:
+            for msg in reversed(response['messages']):  # Start from the latest message
+                if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    # Check each tool call in this message
+                    for tool_call in msg.tool_calls:
+                        if tool_call['name'] == 'query_and_plot_dax_tool':
+                            # Extract the DAX query from the arguments
+                            dax_query = tool_call['args']['dax_query']
+
+        for msg in reversed(response['messages']):  # Start from the latest message
+            if isinstance(msg, ToolMessage):
+                raw = msg.content
+                try:
+                    data = json.loads(raw)        # each ToolMessage stores JSON text
+                except ValueError:
+                    continue 
+
+                if "plot_image_base64" in data:
+                    plot_image_base64 = data["plot_image_base64"]
+                    plot_available = True
+
+        return {'final_message' : final_message,
+                'dax_query' : dax_query,
+                'plot_image_base64' : plot_image_base64,
+                'plot_available' : plot_available
+                }
         except json.JSONDecodeError:
             # If it's plain text, return as plain text
             return func.HttpResponse(final_message, status_code=200, mimetype="text/plain")
@@ -238,13 +281,12 @@ def dax_query_checker_tool(dax_query: str) -> str:
 - Validate proper handling of sensitive data filtering
 
 **INSTRUCTIONS:**
-1. If you find ANY issues, provide the corrected query with clear explanations of changes made.
-2. If the query is correct, return the original query itself.
-3. Always explain your reasoning for any modifications.
-4. Prioritize critical syntax errors, then performance issues, then style improvements.
-5. For complex queries, break down your analysis by section.
+1. If you find ANY issues, provide the corrected query with very small explanations of changes made.
+2. If the query is correct, return the original query itself and nothing extra.
+3. Prioritize critical syntax errors, then performance issues, then style improvements.
+4. While analyzing complex queries, break down your analysis by section to think.
 
-    If there are any mistakes, rewrite the query to be correct. If there are no mistakes, just return the original query.
+    **IMPORTANT NOTE: If there are any mistakes, rewrite the query to be correct. If there are no mistakes, just return the original query and nothing extra.**
     """
     messages = [
         SystemMessage(content=query_check_prompt),
@@ -272,7 +314,7 @@ def run_dax_query_tool(query: str) -> str:
 @tool
 def query_and_plot_dax_tool(dax_query: str, chart_type: Literal["bar", "pie", "line", "scatter", "histogram"], title: str) -> str:
     """
-    Executes a DAX query, then generates an interactive HTML plot from the data.
+    Executes a DAX query, then generates a static plot from the data.
     Returns a JSON object containing a message and the path to the saved plot file.
     Use this when a user explicitly asks for a 'plot', 'chart', 'graph' or 'visualization'.
     """
@@ -281,41 +323,43 @@ def query_and_plot_dax_tool(dax_query: str, chart_type: Literal["bar", "pie", "l
         if df.empty or len(df.columns) < 1:
             return json.dumps({"message": "Query returned no data or insufficient columns for a plot."})
 
-        # Define the path for saving plots. Create the directory if it doesn't exist.
-        plots_dir = "plots"
-        os.makedirs(plots_dir, exist_ok=True)
-        
-        timestamp = int(time.time())
-        file_name = f"plot_{timestamp}.html"
-        file_path = os.path.join(plots_dir, file_name)
+        # ── styling ───────────────────────────────────────────
+        fig, ax = plt.subplots(figsize=(8, 6))
 
-        fig = None
         if chart_type == "bar":
-            fig = px.bar(df, x=df.columns[0], y=df.columns[1], title=title, template="plotly_white")
+            sns.barplot(data=df, x=df.columns[0], y=df.columns[1], ax=ax, palette="Blues_d")
         elif chart_type == "pie":
-            fig = px.pie(df, names=df.columns[0], values=df.columns[1], title=title)
+            if len(df.columns) < 2:
+                return json.dumps({"message": "Pie chart needs two columns: category and value."})
+            ax.pie(df[df.columns[1]],
+                    labels=df[df.columns[0]],
+                    autopct='%1.1f%%',
+                    startangle=90)
+            ax.axis("equal") 
         elif chart_type == "line":
-            fig = px.line(df, x=df.columns[0], y=df.columns[1], title=title, template="plotly_white")
+            sns.lineplot(data=df, x=df.columns[0], y=df.columns[1], ax=ax)
         elif chart_type == "scatter":
-            fig = px.scatter(df, x=df.columns[0], y=df.columns[1], title=title, template="plotly_white")
+            sns.scatterplot(data=df, x=df.columns[0], y=df.columns[1], ax=ax)
         elif chart_type == "histogram":
-            fig = px.histogram(df, x=df.columns[0], title=title, template="plotly_white")
+            sns.histplot(df[df.columns[0]], ax=ax, kde=False)
         else:
             return json.dumps({"message": f"Chart type '{chart_type}' is not supported."})
+        
+        ax.set_title(title)
+        plt.tight_layout()
             
-        # Save the interactive plot as an HTML file
-        if fig:
-            fig.write_html(file_path)
-            
-            # The front-end will need to construct the full URL to this file
-            # based on the web app's domain. We return the relative path.
-            response = {
-                "message": f"Successfully generated an interactive {chart_type} chart titled '{title}'.",
-                "plot_path": file_path,
-            }
-            return json.dumps(response)
-        else:
-            return json.dumps({"message": "Figure could not be generated."})
+        # ── encode PNG ────────────────────────────────────────
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150)
+        plt.close(fig)
+        img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+        response = {
+            "message": f"Successfully generated an interactive {chart_type} chart titled '{title}'.",
+            "plot_image_base64": img_b64,
+            "query_result_dataframe_in_str_format": df.to_string(index=False)
+        }
+        return json.dumps(response)
 
     except Exception as e:
         return json.dumps({"message": f"An error occurred during plotting: {str(e)}"})
@@ -358,7 +402,7 @@ def call_model(state: MessagesState):
     1. First, use `list_tables_dax_tool` and `get_schema_dax_tool` to understand the available data.
     2. Construct a syntactically correct DAX query to find the answer. ALL queries must begin with 'EVALUATE'.
     3. Use the `dax_query_checker_tool` to verify your query.
-    4. If the user's request explicitly asks for a 'plot', 'chart', 'graph', or 'visualization', you MUST use the 'query_and_plot_dax_tool'.
+    4. If the user's request explicitly asks for a 'plot', 'chart', 'graph', or 'visualization', you MUST use the 'query_and_plot_dax_tool' to generate the plot. This tool would also return the DAX query result as a part of its output with other details. Directly use the DAX query output from the tool response to generate a summary or small description about the data (plot for user).
     5. For all other questions that require data, use the `run_dax_query_tool`.
     6. Analyze the result of the query and provide a final, natural language response.
     7. If a query fails, analyze the error, revise your plan, and try again.
