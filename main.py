@@ -310,7 +310,7 @@ def run_dax_query_tool(query: str) -> str:
 @tool
 def query_and_plot_dax_tool(dax_query: str, chart_type: Literal["bar", "pie", "line", "scatter", "histogram"], title: str) -> str:
     """
-    Executes a DAX query, then generates an interactive HTML plot from the data.
+    Executes a DAX query, then generate a static plot from the data.
     Returns a JSON object containing a message and the path to the saved plot file.
     Use this when a user explicitly asks for a 'plot', 'chart', 'graph' or 'visualization'.
     """
