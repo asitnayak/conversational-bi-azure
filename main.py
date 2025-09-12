@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-# from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse
 # import logging
 import pandas as pd
 from msal import ConfidentialClientApplication
@@ -100,9 +100,7 @@ def conv_bot_v1(question: str):
                 'plot_image_base64' : plot_image_base64,
                 'plot_available' : plot_available
                 }
-        except json.JSONDecodeError:
-            # If it's plain text, return as plain text
-            return func.HttpResponse(final_message, status_code=200, mimetype="text/plain")
+
   
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"conv_bot_v1 - An internal error occurred: {str(e)}")
@@ -295,7 +293,6 @@ def dax_query_checker_tool(dax_query: str) -> str:
     response = llm.invoke(messages)
     return response.content
 
-
 @tool
 def run_dax_query_tool(query: str) -> str:
     """
@@ -310,11 +307,10 @@ def run_dax_query_tool(query: str) -> str:
     except Exception as e:
         return f"DAX query failed: {str(e)}. Please check the query and try again."
 
-
 @tool
 def query_and_plot_dax_tool(dax_query: str, chart_type: Literal["bar", "pie", "line", "scatter", "histogram"], title: str) -> str:
     """
-    Executes a DAX query, then generates a static plot from the data.
+    Executes a DAX query, then generates an interactive HTML plot from the data.
     Returns a JSON object containing a message and the path to the saved plot file.
     Use this when a user explicitly asks for a 'plot', 'chart', 'graph' or 'visualization'.
     """
@@ -360,7 +356,7 @@ def query_and_plot_dax_tool(dax_query: str, chart_type: Literal["bar", "pie", "l
             "query_result_dataframe_in_str_format": df.to_string(index=False)
         }
         return json.dumps(response)
-
+        
     except Exception as e:
         return json.dumps({"message": f"An error occurred during plotting: {str(e)}"})
 
@@ -435,6 +431,8 @@ def call_model(state: MessagesState):
         [Total Sales Amount],
         DESC
     )
+
+    **IMPORTANT NOTE: Your final response should not include the DAX query that you used to get the result. Never ask the user from your side that if user wants the DAX query. Only if the user explicitly asks for it, then include the DAX query in your response, otherwise never.**
     """
     llm = get_llm()
     tools = get_tools()
